@@ -22,6 +22,7 @@ from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_coordinator_k8s.v0.tracing import TracingEndpointRequirer
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
+import db_init
 import windmill
 from database import Database, DatabaseInfo
 
@@ -73,10 +74,8 @@ class WindmillCharm(ops.CharmBase):
         framework.observe(self.on.update_status, self._reconcile)
         framework.observe(self.on.leader_settings_changed, self._reconcile)
 
-        db_on = self.database.on()
-        framework.observe(db_on.resource_created, self._reconcile)
-        framework.observe(db_on.endpoints_changed, self._reconcile)
-        framework.observe(db_on.authentication_updated, self._reconcile)
+        db_on = self.database.on
+        framework.observe(db_on.changed, self._reconcile)
 
         framework.observe(self.ingress.on.ready, self._on_ingress_changed)
         framework.observe(self.ingress.on.revoked, self._on_ingress_changed)
@@ -85,6 +84,7 @@ class WindmillCharm(ops.CharmBase):
         framework.observe(self.tracing.on.endpoint_removed, self._reconcile)  # type: ignore[attr-defined]
 
         framework.observe(self.on.restart_action, self._on_restart_action)
+        framework.observe(self.on.init_db_action, self._on_init_db_action)
         framework.observe(self.on.set_admin_password_action, self._on_set_admin_password_action)
         framework.observe(self.on.pre_backup_action, self._on_pre_backup_action)
         framework.observe(self.on.post_restore_action, self._on_post_restore_action)
@@ -122,9 +122,16 @@ class WindmillCharm(ops.CharmBase):
         self._ensure_ca_cert(db_info)
         try:
             self._render_layer(db_info)
-        except ops.pebble.Error as exc:
-            logger.warning("failed to update workload layer: %s", exc)
-            self.unit.status = ops.ErrorStatus(f"workload layer error: {exc}")
+        except (ops.pebble.Error, ops.pebble.ChangeError) as exc:
+            # A ChangeError here usually means the workload exited during
+            # startup (e.g. a failed DB migration). Don't put the unit into
+            # error state — stay waiting so the operator can remediate (e.g.
+            # by running the init-db action) and update-status will retry.
+            logger.warning("workload did not start cleanly: %s", exc)
+            self.unit.status = ops.WaitingStatus(
+                "waiting for windmill to be healthy "
+                "(run 'juju run windmill/0 init-db' if DB migrations fail)"
+            )
             return
 
         self.unit.status = ops.WaitingStatus("waiting for windmill to be healthy")
@@ -242,7 +249,7 @@ class WindmillCharm(ops.CharmBase):
             return None
         try:
             stdout, _ = self.container.exec(
-                ["/usr/bin/windmill", "--version"], timeout=10
+                ["/usr/local/bin/windmill", "--version"], timeout=10
             ).wait_output()
             out = stdout.strip()
             return out or None
@@ -266,6 +273,31 @@ class WindmillCharm(ops.CharmBase):
             event.fail(f"failed to restart: {exc}")
             return
         event.set_results({"result": "restarted"})
+
+    def _on_init_db_action(self, event: ops.ActionEvent) -> None:
+        """Create Windmill's PostgreSQL roles via a superuser connection."""
+        superuser_url = str(event.params.get("superuser-url") or "").strip()
+        if not superuser_url:
+            event.fail("superuser-url parameter is required")
+            return
+        db_info = self.database.get_info()
+        if db_info is None:
+            event.fail("database relation is not ready")
+            return
+        try:
+            results = db_init.init_database(
+                superuser_url=superuser_url, app_username=db_info.username
+            )
+        except db_init.InitDbError as exc:
+            event.fail(str(exc))
+            return
+        # Restart the workload so the (now unblocked) migration re-runs.
+        if self.container.can_connect():
+            try:
+                self.container.restart(windmill.SERVICE_NAME)
+            except ops.pebble.Error as exc:
+                logger.warning("could not restart after init-db: %s", exc)
+        event.set_results(results)
 
     def _on_set_admin_password_action(self, event: ops.ActionEvent) -> None:
         token = str(self.config["superadmin-secret"] or "").strip()

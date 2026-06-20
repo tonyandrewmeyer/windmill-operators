@@ -27,7 +27,7 @@ SERVICE_NAME = "windmill-server"
 SERVER_PORT = 8000
 METRICS_PORT = 8001
 SMTP_PORT = 2525
-HEALTH_PATH = "/api/health"
+HEALTH_PATH = "/health"
 METRICS_PATH = "/metrics"
 
 # Default admin user created by Windmill on first run.
@@ -83,7 +83,7 @@ def build_layer(
             "override": "replace",
             "summary": "Windmill server (API + frontend + scheduler)",
             "startup": "enabled",
-            "command": "/usr/bin/windmill",
+            "command": "/usr/local/bin/windmill",
             "environment": environment,
             "on-failure": "restart",
         }

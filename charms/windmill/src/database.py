@@ -1,26 +1,25 @@
 # Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""PostgreSQL client relation (postgresql_client interface) wrapper.
+"""PostgreSQL client relation (postgresql_client v0 interface) wrapper.
 
-Wraps the generic :mod:`data_platform_libs` data-interfaces library so the
-charm deals only with a simple :class:`DatabaseInfo` value object. The real
-interface protocol (including Juju secret resolution of credentials) is
-handled entirely by the upstream library.
+Implements the ``postgresql_client`` interface directly, using the stable v0
+databag protocol that the Charmed ``postgresql-k8s`` charm (14/stable and
+16/stable) speaks. Credentials are exchanged via Juju secrets referenced from
+the relation application databag.
+
+This deliberately avoids the newer generic ``data_platform_libs`` v1 data
+contract, which is not yet understood by the ``postgresql-k8s`` charms
+currently published on the 14/stable and 16/stable channels.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Optional
+from typing import Mapping, Optional
 
-from charms.data_platform_libs.v1.data_interfaces import (
-    RequirerCommonModel,
-    ResourceProviderModel,
-    ResourceRequirerEventHandler,
-)
-from ops import Application, CharmBase, Relation
+from ops import CharmBase, EventBase, EventSource, Object, ObjectEvents, Relation
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ DATABASE_NAME = "windmill"
 class DatabaseInfo:
     """Resolved PostgreSQL connection details for the Windmill database."""
 
-    endpoints: str  # host:port (read/write)
+    endpoints: str  # host:port (read/write), comma-separated if multiple
     username: str
     password: str
     database: str
@@ -41,12 +40,12 @@ class DatabaseInfo:
 
     @property
     def host(self) -> str:
-        """Return the host portion of the endpoints."""
+        """Return the host portion of the first endpoint."""
         return self.endpoints.split(",", 1)[0].split(":", 1)[0]
 
     @property
     def port(self) -> str:
-        """Return the port portion of the endpoints (default 5432)."""
+        """Return the port portion of the first endpoint (default 5432)."""
         ep = self.endpoints.split(",", 1)[0]
         if ":" in ep:
             return ep.split(":", 1)[1]
@@ -58,21 +57,29 @@ class DatabaseInfo:
         return f"postgresql://{self.username}:{self.password}@{self.endpoints}/{self.database}"
 
 
-class Database:
+class DatabaseChangedEvent(EventBase):
+    """Emitted when database credentials appear or change."""
+
+
+class DatabaseEvents(ObjectEvents):
+    """Events emitted by :class:`Database`."""
+
+    changed = EventSource(DatabaseChangedEvent)
+
+
+class Database(Object):
     """Manage the ``postgresql_client`` requirer relation and credentials."""
 
-    def __init__(self, charm: CharmBase) -> None:
-        self._charm = charm
-        self.interface: ResourceRequirerEventHandler = ResourceRequirerEventHandler(
-            charm,
-            relation_name=RELATION_NAME,
-            requests=[RequirerCommonModel(resource=DATABASE_NAME)],
-            response_model=ResourceProviderModel,
-        )
+    on = DatabaseEvents()  # type: ignore[assignment]
 
-    def on(self):  # noqa: ANN201 - thin accessor for the library's event source
-        """Return the library's event source for observing."""
-        return self.interface.on
+    def __init__(self, charm: CharmBase) -> None:
+        super().__init__(charm, RELATION_NAME)
+        self._charm = charm
+        self.framework.observe(charm.on[RELATION_NAME].relation_created, self._on_relation_created)
+        self.framework.observe(charm.on[RELATION_NAME].relation_changed, self._on_relation_changed)
+        self.framework.observe(charm.on.secret_changed, self._on_secret_changed)
+
+    # ----------------------------------------------------------------- properties
 
     @property
     def relation(self) -> Optional[Relation]:
@@ -84,43 +91,84 @@ class Database:
         """Whether credentials have been provided by the database charm."""
         return self.get_info() is not None
 
-    def get_info(self) -> Optional[DatabaseInfo]:
-        """Resolve and return the current database credentials, or ``None``.
+    # --------------------------------------------------------------------- events
 
-        Credentials are resolved from Juju secrets referenced in the relation
-        databag by the upstream library.
-        """
+    def _on_relation_created(self, event) -> None:
+        """Publish the database request to the provider (leader only)."""
+        if not self._charm.unit.is_leader():
+            return
+        if event.relation.app is None:
+            return
+        local_app = self._charm.app
+        data = event.relation.data[local_app]
+        data["database"] = DATABASE_NAME
+        data.setdefault("extensions", "[]")
+        # Windmill's first migration creates a `windmill_admin` role WITH
+        # BYPASSRLS, which requires superuser. Requesting SUPERUSER for the
+        # relation user lets Windmill self-provision on managed PostgreSQL.
+        data.setdefault("extra-user-roles", "SUPERUSER")
+        data.setdefault("limit", "none")
+        data.setdefault("read-only-endpoints", "")
+
+    def _on_relation_changed(self, event) -> None:
+        """Re-emit a changed event when the provider updates its databag."""
+        if self.get_info() is not None:
+            self.on.changed.emit()
+
+    def _on_secret_changed(self, event) -> None:
+        """Re-emit a changed event when a referenced secret is rotated."""
+        # Secret labels from postgresql-k8s carry the relation id; only react
+        # to those that look like ours to avoid spurious reconciles.
+        label = getattr(event.secret, "label", None) or ""
+        if RELATION_NAME in label or "database" in label or label == "":
+            self.on.changed.emit()
+
+    # ----------------------------------------------------------------- credential fetch
+
+    def get_info(self) -> Optional[DatabaseInfo]:
+        """Resolve and return the current database credentials, or ``None``."""
         relation = self.relation
         if relation is None or relation.app is None:
             return None
-        try:
-            model = self.interface.interface.build_model(
-                relation_id=relation.id, component=relation.app
-            )
-        except Exception:  # noqa: BLE001 - relation not fully populated yet
-            logger.debug("database relation not ready yet", exc_info=True)
+        provider_data = relation.data[relation.app]
+        endpoints = provider_data.get("endpoints")
+        if not endpoints:
             return None
 
-        requests = getattr(model, "requests", []) or []
-        if not requests:
-            return None
-        response = requests[0]
-        endpoints = getattr(response, "endpoints", None)
-        username = getattr(response, "username", None)
-        password = getattr(response, "password", None)
-        database = getattr(response, "resource", None) or DATABASE_NAME
-        tls_ca = getattr(response, "tls_ca", None)
-        if not (endpoints and username and password):
+        username = self._secret_field(provider_data, "secret-user", "username")
+        password = self._secret_field(provider_data, "secret-password", "password")
+        database = self._secret_field(provider_data, "secret-db", "database") or DATABASE_NAME
+        tls_ca = self._secret_field(provider_data, "secret-tls-ca", "cert")
+
+        # Fallback to legacy plaintext fields for older providers.
+        if not username:
+            username = provider_data.get("username")
+        if not password:
+            password = provider_data.get("password")
+        if not database:
+            database = provider_data.get("database") or DATABASE_NAME
+
+        if not (username and password):
             return None
         return DatabaseInfo(
-            endpoints=str(endpoints),
-            username=str(username),
-            password=str(password),
-            database=str(database),
-            tls_ca=str(tls_ca) if tls_ca else None,
+            endpoints=endpoints,
+            username=username,
+            password=password,
+            database=database,
+            tls_ca=tls_ca,
         )
 
-    @staticmethod
-    def app_for(relation: Relation) -> Optional[Application]:
-        """Return the remote application of a relation, defensively."""
-        return relation.app
+    def _secret_field(
+        self, provider_data: Mapping[str, str], uri_key: str, content_key: str
+    ) -> Optional[str]:
+        """Resolve a Juju secret referenced in the provider databag."""
+        uri = provider_data.get(uri_key)
+        if not uri:
+            return None
+        try:
+            secret = self._charm.model.get_secret(id=uri)
+            content = secret.get_content(refresh=True)
+        except Exception:  # noqa: BLE001 - secret may not be granted/ready yet
+            logger.debug("could not resolve secret %s", uri_key, exc_info=True)
+            return None
+        return content.get(content_key)

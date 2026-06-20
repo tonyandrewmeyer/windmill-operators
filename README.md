@@ -26,7 +26,7 @@ architecture:
 juju add-model windmill
 
 # The database — Windmill stores 100% of its state here
-juju deploy postgresql-k8s --channel 14/stable --trust
+juju deploy postgresql-k8s --channel 16/stable --trust
 
 # The Windmill server (Community Edition by default)
 juju deploy ./charms/windmill/windmill_amd64.charm windmill --resource \
@@ -44,12 +44,17 @@ juju integrate postgresql-k8s:database windmill-worker:database
 # External access (TLS termination) via traefik
 juju deploy traefik-k8s --trust
 juju integrate windmill:ingress traefik-k8s:ingress
+```
 
-# Observability (optional) — the Charmed OpenTelemetry / Loki / Prometheus stack
-juju deploy cos-lite --trust   # or individual charms
-juju integrate windmill:logging        loki-k8s:logging
-juju integrate windmill:metrics-endpoint prometheus-k8s:metrics-endpoint
-juju integrate windmill:tracing        tempo-coordinator-k8s:tracing
+Windmill's first migration needs a superuser to create its `windmill_admin`
+role. On managed PostgreSQL (including `postgresql-k8s`) initialise the
+database once after relating it — otherwise the server waits with a message
+pointing you here:
+
+```bash
+# operator-password comes from postgresql-k8s's database-peers.<app> secret
+juju run windmill/0 init-db \
+    superuser-url="postgresql://operator:<operator-password>@postgresql-primary:5432/postgres"
 ```
 
 After deployment, visit the traefik URL and sign in with
@@ -60,21 +65,16 @@ juju config windmill superadmin-secret="$(openssl rand -hex 32)"
 juju run windmill/0 set-admin-password
 ```
 
-## Day-2 operations
-
-- **Backups**: Windmill's state is entirely in PostgreSQL. Back up via the
-  `postgresql-k8s` charm's `backup`/`restore` actions — see
-  [`charms/windmill/README.md`](charms/windmill/README.md) for details.
-- **Scaling**: `juju scale-application windmill N` and
-  `juju scale-application windmill-worker N`. Workers scale independently.
-- **Upgrades**: update the OCI image resource and `juju run <unit> restart`.
-- **Secret rotation**: rotate `superadmin-secret`, then
-  `juju run windmill/0 set-admin-password`. Rotate DB credentials by
-  re-adding the database relation.
-
 ## Observability
 
 Both charms integrate with the Canonical Observability Stack:
+
+```bash
+juju deploy cos-lite --trust   # or individual charms
+juju integrate windmill:logging        loki-k8s:logging
+juju integrate windmill:metrics-endpoint prometheus-k8s:metrics-endpoint
+juju integrate windmill:tracing        tempo-coordinator-k8s:tracing
+```
 
 - **Metrics** — `provides: metrics-endpoint` (`prometheus_scrape`). Windmill
   exposes Prometheus metrics on port 8001 when `enable-metrics=true`
@@ -83,6 +83,19 @@ Both charms integrate with the Canonical Observability Stack:
   are forwarded to Loki via the `LogForwarder` library.
 - **Traces** — `requires: tracing` (`tracing`). The OTLP endpoint from Tempo
   is exposed to job scripts via standard `OTEL_*` environment variables.
+
+## Day-2 operations
+
+- **DB init**: on managed PostgreSQL run `juju run windmill/0 init-db` once
+  (see [charms/windmill/README.md](charms/windmill/README.md)).
+- **Backups**: Windmill's state is entirely in PostgreSQL. Back up via the
+  `postgresql-k8s` charm's `backup`/`restore` actions.
+- **Scaling**: `juju scale-application windmill N` and
+  `juju scale-application windmill-worker N`. Workers scale independently.
+- **Upgrades**: update the OCI image resource and `juju run <unit> restart`.
+- **Secret rotation**: rotate `superadmin-secret`, then
+  `juju run windmill/0 set-admin-password`. Rotate DB credentials by
+  re-adding the database relation.
 
 ## Repository layout
 

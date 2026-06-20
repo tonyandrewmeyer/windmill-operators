@@ -33,8 +33,6 @@ assumes:
   - k8s-api
 
 charm-libs:
-  - lib: data-platform-libs.data_interfaces
-    version: "1"
   - lib: traefik_k8s.ingress
     version: "2"
   - lib: prometheus_k8s.prometheus_scrape
@@ -161,6 +159,28 @@ config:
 actions:
   restart:
     description: Restart the Windmill server workload (Pebble service).
+  init-db:
+    description: |
+      Create the `windmill_admin` and `windmill_user` PostgreSQL roles that
+      Windmill's migrations require, and grant them to the relation user.
+
+      On managed PostgreSQL (such as the Charmed postgresql-k8s charm) the
+      Windmill database user is not a superuser, so the first migration —
+      which creates `windmill_admin WITH BYPASSRLS` — fails with
+      `role "windmill_admin" does not exist`. Run this action once, with a
+      superuser connection string, to prepare the database. Afterwards
+      restart the server so migrations re-run.
+
+      The superuser DSN can be obtained from the postgresql charm, e.g.
+      `juju run postgresql/0 get-password` and constructing
+      `postgresql://postgres:<password>@<host>:5432/postgres`.
+    params:
+      superuser-url:
+        type: string
+        description: |
+          A PostgreSQL superuser connection string, e.g.
+          postgresql://postgres:s3cr3t@10.1.0.1:5432/postgres
+    required: [superuser-url]
   set-admin-password:
     description: |
       Rotate the password of the initial admin user

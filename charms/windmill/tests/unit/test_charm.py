@@ -26,13 +26,13 @@ BASE_LAYER = ops.pebble.Layer(
                 "override": "replace",
                 "level": "ready",
                 "threshold": 3,
-                "http": {"url": f"http://localhost:{windmill.SERVER_PORT}/api/health"},
+                "http": {"url": f"http://localhost:{windmill.SERVER_PORT}/health"},
             },
             "http-alive": {
                 "override": "replace",
                 "level": "alive",
                 "threshold": 3,
-                "http": {"url": f"http://localhost:{windmill.SERVER_PORT}/api/health"},
+                "http": {"url": f"http://localhost:{windmill.SERVER_PORT}/health"},
             },
         }
     }
@@ -152,7 +152,7 @@ def test_build_layer_server_defaults():
     assert svc.environment["METRICS_ADDR"] == f":{windmill.METRICS_PORT}"
     assert "http-ready" in layer_dict["checks"]  # type: ignore[index]
     http_check = layer_dict["checks"]["http-ready"]  # type: ignore[index]
-    assert http_check["http"]["url"].endswith("/api/health")  # type: ignore[index]
+    assert http_check["http"]["url"].endswith("/health")  # type: ignore[index]
 
 
 def test_generate_password_is_strong():
@@ -172,3 +172,60 @@ def test_database_info_connection_string():
     assert info.host == "h"
     assert info.port == "5432"
     assert info.connection_string == "postgresql://u:p@h:5432/windmill"
+
+
+def test_v0_database_relation_provisioning():
+    """The charm resolves credentials from the v0 postgresql_client protocol.
+
+    Simulates a postgresql-k8s provider writing endpoints + secret URIs to its
+    application databag and granting the referenced secrets.
+    """
+    ctx = testing.Context(WindmillCharm)
+    secret_user = testing.Secret({"username": "wmill"}, id="secret:usersec")
+    secret_pass = testing.Secret({"password": "p455"}, id="secret:passsec")
+    secret_db = testing.Secret({"database": "windmill"}, id="secret:dbsec")
+    db_relation = testing.Relation(
+        "database",
+        remote_app_name="postgresql",
+        remote_app_data={
+            "endpoints": "postgresql-primary.default.svc:5432",
+            "secret-user": "secret:usersec",
+            "secret-password": "secret:passsec",
+            "secret-db": "secret:dbsec",
+            "database": "windmill",
+        },
+    )
+    container = testing.Container(
+        CONTAINER_NAME,
+        can_connect=True,
+        layers={"base": BASE_LAYER},
+        service_statuses={SERVICE_NAME: ops.pebble.ServiceStatus.INACTIVE},
+        check_infos={
+            testing.CheckInfo(
+                "http-ready",
+                level=ops.pebble.CheckLevel.READY,
+                status=ops.pebble.CheckStatus.UP,
+                startup=ops.pebble.CheckStartup.UNSET,
+            ),
+            testing.CheckInfo(
+                "http-alive",
+                level=ops.pebble.CheckLevel.ALIVE,
+                status=ops.pebble.CheckStatus.UP,
+                startup=ops.pebble.CheckStartup.UNSET,
+            ),
+        },
+    )
+    state = testing.State(
+        leader=True,
+        containers={container},
+        relations={db_relation},
+        secrets={secret_user, secret_pass, secret_db},
+    )
+    state_out = ctx.run(ctx.on.relation_changed(db_relation), state)
+    container_out = state_out.get_container(CONTAINER_NAME)
+    env = container_out.layers["windmill"].services[SERVICE_NAME].environment
+    assert (
+        env["DATABASE_URL"]
+        == "postgresql://wmill:p455@postgresql-primary.default.svc:5432/windmill"
+    )
+    assert state_out.unit_status == testing.ActiveStatus("ready")

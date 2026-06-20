@@ -11,8 +11,9 @@ requires-python = ">=3.10"
 dependencies = [
     "ops~=3.7",
     # charm library transitive dependencies:
-    "pydantic>=2.11",  # data_platform_libs, traefik_k8s ingress
+    "pydantic>=2.11",  # traefik_k8s ingress
     "cosl>=0.0.53",    # prometheus_scrape, loki_push_api
+    "pg8000>=1.31",    # pure-python postgres client for the init-db action
 ]
 
 [dependency-groups]
@@ -20,6 +21,9 @@ lint = [
     "ruff",
     "codespell",
     "pyright",
+    # pyright needs to resolve test imports too:
+    "pytest",
+    "ops[testing]",
 ]
 unit = [
     "coverage[toml]",

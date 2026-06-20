@@ -59,10 +59,8 @@ class WindmillWorkerCharm(ops.CharmBase):
         framework.observe(self.on.config_changed, self._reconcile)
         framework.observe(self.on.update_status, self._reconcile)
 
-        db_on = self.database.on()
-        framework.observe(db_on.resource_created, self._reconcile)
-        framework.observe(db_on.endpoints_changed, self._reconcile)
-        framework.observe(db_on.authentication_updated, self._reconcile)
+        db_on = self.database.on
+        framework.observe(db_on.changed, self._reconcile)
 
         framework.observe(self.tracing.on.endpoint_changed, self._reconcile)  # type: ignore[attr-defined]
         framework.observe(self.tracing.on.endpoint_removed, self._reconcile)  # type: ignore[attr-defined]
@@ -160,7 +158,7 @@ class WindmillWorkerCharm(ops.CharmBase):
             return None
         try:
             stdout, _ = self.container.exec(
-                ["/usr/bin/windmill", "--version"], timeout=10
+                ["/usr/local/bin/windmill", "--version"], timeout=10
             ).wait_output()
             out = stdout.strip()
             return out or None

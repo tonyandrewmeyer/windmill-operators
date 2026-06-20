@@ -573,7 +573,9 @@ integration = [
 ]
 lint = [
     { name = "codespell" },
+    { name = "ops", extra = ["testing"] },
     { name = "pyright" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 unit = [
@@ -597,7 +599,9 @@ integration = [
 ]
 lint = [
     { name = "codespell" },
+    { name = "ops", extras = ["testing"] },
     { name = "pyright" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 unit = [

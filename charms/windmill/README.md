@@ -23,6 +23,10 @@ back up the instance.
 | `logging` | `loki_push_api` | requires | Forward workload logs to Loki |
 | `tracing` | `tracing` | requires | OTLP endpoint for job traces (Tempo) |
 
+> **Database compatibility**: the charm uses the v1 `postgresql_client` data
+> contract from `data_platform_libs`. Relate it to a recent
+> `postgresql-k8s` (14/stable or 16/stable).
+
 ## Containers & storage
 
 - **`windmill`** — the Windmill server OCI image
@@ -55,6 +59,7 @@ See `charmcraft.yaml` for the full, authoritative list.
 | Action | Description |
 |--------|-------------|
 | `restart` | Restart the Windmill server workload |
+| `init-db` | Create the `windmill_admin`/`windmill_user` PostgreSQL roles Windmill's migrations require (see *Initialising the database* below) |
 | `set-admin-password` | Rotate the `admin@windmill.dev` password (requires `superadmin-secret`); returns and stores the new password as a Juju secret |
 | `pre-backup` | Confirm the instance is healthy before a DB backup |
 | `post-restore` | Reconcile the workload after a DB restore (restart) |
@@ -88,6 +93,29 @@ juju run windmill/0 set-admin-password
 
 The new password is returned in the action output and stored as a Juju
 secret labelled `admin-password`.
+
+### Initialising the database (required on managed PostgreSQL)
+
+Windmill's first migration creates a `windmill_admin` role `WITH BYPASSRLS`,
+which requires a PostgreSQL superuser. On managed PostgreSQL — including the
+Charmed `postgresql-k8s` charm, where the relation user is **not** a
+superuser — the server will crash-loop with
+`role "windmill_admin" does not exist` and the unit will wait with a message
+pointing you here. Initialise the database once after relating PostgreSQL:
+
+```bash
+# Charmed postgresql-k8s: the superuser is `operator`; its password is in the
+# charm's `database-peers.<app>.app` Juju secret (operator-password field).
+juju run windmill/0 init-db \
+    superuser-url="postgresql://operator:<operator-password>@postgresql-primary:5432/postgres"
+
+# External/managed Postgres (RDS, Cloud SQL, …): use your superuser DSN.
+juju run windmill/0 init-db \
+    superuser-url="postgresql://postgres:<password>@<host>:5432/postgres"
+```
+
+The action creates the roles idempotently, grants them to the relation user,
+and restarts the server so migrations re-run. After it, the unit goes active.
 
 ### Backups & restores
 

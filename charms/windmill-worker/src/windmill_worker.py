@@ -82,7 +82,7 @@ def build_layer(
             "override": "replace",
             "summary": f"Windmill worker (group={worker_group})",
             "startup": "enabled",
-            "command": "/usr/bin/windmill",
+            "command": "/usr/local/bin/windmill",
             "environment": environment,
             "on-failure": "restart",
         }
@@ -94,7 +94,7 @@ def build_layer(
             "override": "replace",
             "level": "alive",
             "threshold": 3,
-            "exec": {"command": "pgrep -f '/usr/bin/windmill'"},
+            "exec": {"command": "pgrep -f '/usr/local/bin/windmill'"},
         }
     }
     return {"services": services, "checks": checks}

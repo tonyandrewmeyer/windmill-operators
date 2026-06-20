@@ -26,8 +26,7 @@ def test_deploy_blocks_without_database(charm: pathlib.Path, juju: jubilant.Juju
 
     def _blocked(status):
         return (
-            status.apps["windmill-worker"].units["windmill-worker/0"]
-            .workload_status.status
+            status.apps["windmill-worker"].units["windmill-worker/0"].workload_status.status
             == "blocked"
         )
 

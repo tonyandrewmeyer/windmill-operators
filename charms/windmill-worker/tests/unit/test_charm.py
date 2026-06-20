@@ -30,7 +30,7 @@ BASE_LAYER = ops.pebble.Layer(
                 "override": "replace",
                 "level": "alive",
                 "threshold": 3,
-                "exec": {"command": "pgrep -f '/usr/bin/windmill'"},
+                "exec": {"command": "pgrep -f '/usr/local/bin/windmill'"},
             }
         }
     }
