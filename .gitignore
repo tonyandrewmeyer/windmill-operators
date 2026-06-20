@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Charmcraft / build artefacts
+*.charm
+build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

@@ -1,0 +1,184 @@
+# Copyright 2026 Canonical Ltd.
+# See LICENSE file for licensing details.
+# See https://documentation.ubuntu.com/charmcraft/stable/reference/files/charmcraft-yaml-file/
+type: charm
+name: windmill-worker
+title: Windmill Worker
+summary: Windmill worker that executes jobs from the shared PostgreSQL queue.
+description: |
+  Windmill workers are stateless processes that pull jobs from the Windmill
+  PostgreSQL job queue and execute them. Workers do not communicate with the
+  Windmill server directly — they only talk to PostgreSQL — so they scale
+  horizontally and independently of the server.
+
+  This charm deploys one Windmill worker per unit. Relate it to the same
+  `postgresql-k8s` application as the `windmill` server charm so they share
+  the job queue. Configure the worker group, tags, memory size and sandboxing
+  via charm config.
+
+  Rule of thumb: one worker per ~1 vCPU and 1–2 GiB of memory. Each worker
+  runs one job at a time (the native worker group runs 8 subworkers in
+  process).
+
+  Upstream: https://github.com/windmill-labs/windmill
+
+base: ubuntu@24.04
+platforms:
+  amd64:
+  arm64:
+
+assumes:
+  - juju >= 3.6
+  - k8s-api
+
+charm-libs:
+  - lib: data-platform-libs.data_interfaces
+    version: "1"
+  - lib: prometheus_k8s.prometheus_scrape
+    version: "0"
+  - lib: loki_k8s.loki_push_api
+    version: "1"
+  - lib: tempo_coordinator_k8s.tracing
+    version: "0"
+
+parts:
+  charm:
+    plugin: uv
+    source: .
+    build-snaps:
+      - astral-uv
+
+containers:
+  windmill-worker:
+    resource: windmill-worker-image
+    mounts:
+      - storage: cache
+        location: /tmp/windmill/cache
+      - storage: jobs
+        location: /tmp/windmill
+
+resources:
+  windmill-worker-image:
+    type: oci-image
+    description: |
+      OCI image for the Windmill worker container. Default is the Community
+      Edition (ghcr.io/windmill-labs/windmill:main). Use
+      ghcr.io/windmill-labs/windmill-ee:main for the Enterprise Edition.
+    upstream-source: ghcr.io/windmill-labs/windmill:main
+
+storage:
+  cache:
+    type: filesystem
+    location: /tmp/windmill/cache
+  jobs:
+    type: filesystem
+    location: /tmp/windmill
+
+requires:
+  database:
+    interface: postgresql_client
+    limit: 1
+  logging:
+    interface: loki_push_api
+  tracing:
+    interface: tracing
+    limit: 1
+
+provides:
+  metrics-endpoint:
+    interface: prometheus_scrape
+
+config:
+  options:
+    worker-group:
+      type: string
+      default: default
+      description: |
+        Worker group this unit joins (WORKER_GROUP). Worker groups partition
+        workers by tags, init scripts and resource profile. Use "native" for
+        the in-process native job worker.
+    native-mode:
+      type: boolean
+      default: false
+      description: |
+        Run in native mode (NATIVE_MODE=true). Only valid with worker-group
+        "native": spawns 8 native subworkers in-process for high-throughput
+        native jobs (nativets, postgresql, mysql, mssql, graphql, …) and
+        rejects dependency jobs.
+    worker-tags:
+      type: string
+      default: ""
+      description: |
+        Comma-separated worker tags (WORKER_TAGS), e.g. "gpu,big". Overrides
+        the default tag set for the worker group when set.
+    sleep-queue:
+      type: int
+      default: 50
+      description: |
+        Milliseconds between job-queue polls (SLEEP_QUEUE). Lower values reduce
+        latency at the cost of database load. The native group defaults to 200.
+    keep-job-dir:
+      type: boolean
+      default: false
+      description: |
+        Keep the per-job working directory under /tmp/windmill after the job
+        finishes (KEEP_JOB_DIR), useful for debugging. Off by default to save
+        disk.
+    min-free-disk-space-mb:
+      type: int
+      default: 15000
+      description: |
+        Free disk threshold below which the worker declares itself
+        unhealthy (MIN_FREE_DISK_SPACE_MB).
+    enable-pid-isolation:
+      type: boolean
+      default: false
+      description: |
+        Enable PID namespace isolation for jobs (ENABLE_UNSHARE_PID=true).
+        Requires the workload container to run privileged (see privileged
+        config) and the host to allow user namespaces.
+    privileged:
+      type: boolean
+      default: false
+      description: |
+        Run the worker container privileged. Required for PID namespace
+        isolation and NSJAIL sandboxing. Privileged workers can run sandboxed
+        user code more securely but grant the container elevated capabilities.
+    disable-nsjail:
+      type: boolean
+      default: true
+      description: |
+        Whether to disable NSJAIL job sandboxing (DISABLE_NSJAIL). Set to false
+        to enable filesystem/network/resource isolation for jobs. Requires
+        privileged=true (or DISABLE_NUSER=true with capabilities).
+    json-logs:
+      type: boolean
+      default: true
+      description: Emit structured JSON logs (JSON_FMT=true).
+    enable-metrics:
+      type: boolean
+      default: true
+      description: |
+        Expose Prometheus metrics on port 8001 (METRICS_ADDR). Enterprise
+        Edition feature.
+    py-concurrent-downloads:
+      type: int
+      default: 20
+      description: |
+        Number of in-flight Python dependency downloads (PY_CONCURRENT_DOWNLOADS).
+    pip-local-dependencies:
+      type: string
+      default: ""
+      description: |
+        Comma-separated Python packages to pre-install on the worker
+        (PIP_LOCAL_DEPENDENCIES), skipping dependency resolution for them.
+    whitelist-envs:
+      type: string
+      default: ""
+      description: |
+        Comma-separated environment variable names to pass through to jobs
+        (WHITELIST_ENVS).
+
+actions:
+  restart:
+    description: Restart the Windmill worker workload (Pebble service).
