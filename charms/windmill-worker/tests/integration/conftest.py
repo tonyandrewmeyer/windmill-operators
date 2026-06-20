@@ -1,8 +1,7 @@
-# Copyright 2026 Ubuntu
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
 #
-# The integration tests use the Jubilant library. See https://documentation.ubuntu.com/jubilant/
-# To learn more about testing, see https://documentation.ubuntu.com/ops/latest/explanation/testing/
+# Integration tests use the Jubilant library: https://documentation.ubuntu.com/jubilant/
 
 import logging
 import os
@@ -24,7 +23,7 @@ def juju(request: pytest.FixtureRequest):
 
         if request.session.testsfailed:
             logger.info("Collecting Juju logs...")
-            time.sleep(0.5)  # Wait for Juju to process logs.
+            time.sleep(0.5)
             log = juju.debug_log(limit=1000)
             print(log, end="", file=sys.stderr)
 
@@ -37,7 +36,6 @@ def charm():
         if not charm_path.exists():
             raise FileNotFoundError(f"Charm does not exist: {charm_path}")
         return charm_path
-    # Modify below if you're building for multiple bases or architectures.
     charm_paths = list(pathlib.Path(".").glob("*.charm"))
     if not charm_paths:
         raise FileNotFoundError("No .charm file in current directory")

@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint-and-unit:
+    name: Lint, type-check & unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        charm: [windmill, windmill-worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install charmcraft
+        run: sudo snap install charmcraft --classic
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync dependencies
+        working-directory: charms/${{ matrix.charm }}
+        run: uv sync
+
+      - name: Format check
+        working-directory: charms/${{ matrix.charm }}
+        run: uv run --group lint ruff format --check --diff src tests
+
+      - name: Lint
+        working-directory: charms/${{ matrix.charm }}
+        run: uv run --group lint ruff check src tests
+
+      - name: Type check
+        working-directory: charms/${{ matrix.charm }}
+        run: uv run --group lint pyright
+
+      - name: Codespell
+        working-directory: charms/${{ matrix.charm }}
+        run: uv run --group lint codespell .
+
+      - name: Unit tests
+        working-directory: charms/${{ matrix.charm }}
+        env:
+          PYTHONPATH: src:lib
+        run: uv run --group unit coverage run -m pytest tests/unit -v
+
+      - name: Coverage report
+        working-directory: charms/${{ matrix.charm }}
+        run: uv run --group unit coverage report
+
+  build:
+    name: Pack charm
+    runs-on: ubuntu-latest
+    needs: lint-and-unit
+    strategy:
+      fail-fast: false
+      matrix:
+        charm: [windmill, windmill-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install charmcraft
+        run: sudo snap install charmcraft --classic
+      - name: Pack
+        working-directory: charms/${{ matrix.charm }}
+        run: charmcraft pack
+      - name: Upload charm
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.charm }}.charm
+          path: charms/${{ matrix.charm }}/*.charm
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        charm: [windmill, windmill-worker]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup MicroK8s Juju
+        uses: charmed-kubernetes/actions-operator@main
+        with:
+          provider: microk8s
+          juju-channel: 3.6/stable
+      - name: Download charm
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.charm }}.charm
+          path: charms/${{ matrix.charm }}/
+      - name: Run integration tests
+        working-directory: charms/${{ matrix.charm }}
+        env:
+          CHARM_PATH: ${{ matrix.charm }}_amd64.charm
+        run: tox -e integration

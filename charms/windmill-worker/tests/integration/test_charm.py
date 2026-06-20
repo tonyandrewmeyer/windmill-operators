@@ -1,35 +1,47 @@
-# Copyright 2026 Ubuntu
+# Copyright 2026 Canonical Ltd.
 # See LICENSE file for licensing details.
-#
-# The integration tests use the Jubilant library. See https://documentation.ubuntu.com/jubilant/
-# To learn more about testing, see https://documentation.ubuntu.com/ops/latest/explanation/testing/
+
+"""Integration tests for the windmill-worker charm."""
 
 import logging
 import pathlib
 
 import jubilant
-import pytest
 import yaml
 
 logger = logging.getLogger(__name__)
 
 METADATA = yaml.safe_load(pathlib.Path("charmcraft.yaml").read_text())
 
-
-def test_deploy(charm: pathlib.Path, juju: jubilant.Juju):
-    """Deploy the charm under test."""
-    resources = {
-        "some-container-image": METADATA["resources"]["some-container-image"]["upstream-source"]
-    }
-    juju.deploy(charm.resolve(), app="windmill-worker", resources=resources)
-    juju.wait(jubilant.all_active)
+WINDMILL_IMAGE = METADATA["resources"]["windmill-worker-image"]["upstream-source"]
 
 
-# If you implement windmill_worker.get_version in the charm source,
-# remove the @pytest.mark.skip line to enable this test.
-# Alternatively, remove this test if you don't need it.
-@pytest.mark.skip(reason="windmill_worker.get_version is not implemented")
-def test_workload_version_is_set(charm: pathlib.Path, juju: jubilant.Juju):
-    """Check that the correct version of the workload is running."""
-    version = juju.status().apps["windmill-worker"].version
-    assert version == "3.14"  # Replace 3.14 by the expected version of the workload.
+def test_deploy_blocks_without_database(charm: pathlib.Path, juju: jubilant.Juju):
+    """The worker deploys and blocks until a database relation is added."""
+    juju.deploy(
+        charm.resolve(),
+        app="windmill-worker",
+        resources={"windmill-worker-image": WINDMILL_IMAGE},
+    )
+
+    def _blocked(status):
+        return (
+            status.apps["windmill-worker"].units["windmill-worker/0"]
+            .workload_status.status
+            == "blocked"
+        )
+
+    juju.wait(_blocked, timeout=300)
+
+
+def test_with_database(charm: pathlib.Path, juju: jubilant.Juju):
+    """Relate to postgresql and wait for active/idle."""
+    juju.deploy("postgresql-k8s", app="postgresql", channel="14/stable", trust=True)
+    juju.integrate("postgresql:database", "windmill-worker:database")
+    juju.wait(jubilant.all_active, timeout=900)
+
+
+def test_restart_action(juju: jubilant.Juju):
+    """The restart action completes successfully."""
+    result = juju.run("windmill-worker/0", "restart")
+    assert result.return_code == 0
