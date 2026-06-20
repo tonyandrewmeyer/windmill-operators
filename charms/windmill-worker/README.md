@@ -90,15 +90,20 @@ juju integrate postgresql-k8s:database wm-worker-gpu:database
 Workers execute user-supplied code. **Isolation is disabled by default** —
 enable it for untrusted workloads:
 
-- **PID namespace isolation** — `enable-pid-isolation=true` (requires
-  `privileged=true` and host user namespaces). Gives each job its own PID
-  namespace with proper signal forwarding and zombie reaping.
-- **NSJAIL** — `disable-nsjail=false` (with `privileged=true`, or
-  `DISABLE_NUSER` for non-privileged) provides filesystem, network and
-  resource-limit isolation per job.
+- **PID namespace isolation** — `enable-pid-isolation=true` sets
+  `ENABLE_UNSHARE_PID`. This requires the workload container to run
+  **privileged** (with host user namespaces enabled). Juju sidecar charms
+  don't make the container privileged by themselves; provide a privileged
+  security context via a custom rock or your cluster's pod-spec policy.
+- **NSJAIL** — `disable-nsjail=false` enables NSJAIL per-job sandboxing
+  (filesystem, network and resource limits). Also requires a privileged
+  container, or the `SYS_ADMIN`, `SYS_RESOURCE`, `SETPCAP` capabilities with
+  `allowPrivilegeEscalation`.
 
-For defence in depth, deploy untrusted workers in a separate Juju model with
-their own database replica and network policies.
+Until the container is privileged, leave both disabled (the defaults) —
+otherwise the worker will fail to start. For defence in depth, deploy
+untrusted workers in a separate Juju model with their own database replica
+and network policies.
 
 ## Scaling & upgrades
 

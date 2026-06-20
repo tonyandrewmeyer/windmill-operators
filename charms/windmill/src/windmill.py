@@ -169,10 +169,9 @@ class WindmillAdminClient:
             return False
 
     def set_user_password(self, email: str, password: str) -> None:
-        """Set the password of an existing user (requires superadmin)."""
-        # Windmill superadmin endpoint to update a user's password.
-        self._request(
-            "POST",
-            "/api/users/set_password",
-            body={"email": email, "password": password},
-        )
+        """Set the password of an existing user (requires superadmin).
+
+        Uses the ``POST /users/set_password_of/{user}`` endpoint.
+        """
+        user = urllib.parse.quote(email, safe="")
+        self._request("POST", f"/users/set_password_of/{user}", body={"password": password})

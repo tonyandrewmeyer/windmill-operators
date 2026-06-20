@@ -133,22 +133,16 @@ config:
       default: false
       description: |
         Enable PID namespace isolation for jobs (ENABLE_UNSHARE_PID=true).
-        Requires the workload container to run privileged (see privileged
-        config) and the host to allow user namespaces.
-    privileged:
-      type: boolean
-      default: false
-      description: |
-        Run the worker container privileged. Required for PID namespace
-        isolation and NSJAIL sandboxing. Privileged workers can run sandboxed
-        user code more securely but grant the container elevated capabilities.
+        Requires the workload container to run privileged (e.g. via a custom
+        rock or pod security context) and the host to allow user namespaces.
     disable-nsjail:
       type: boolean
       default: true
       description: |
         Whether to disable NSJAIL job sandboxing (DISABLE_NSJAIL). Set to false
-        to enable filesystem/network/resource isolation for jobs. Requires
-        privileged=true (or DISABLE_NUSER=true with capabilities).
+        to enable filesystem/network/resource isolation for jobs. Requires a
+        privileged container (or capabilities SYS_ADMIN, SYS_RESOURCE, SETPCAP
+        with allowPrivilegeEscalation) — see the README.
     json-logs:
       type: boolean
       default: true
