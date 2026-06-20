@@ -67,9 +67,6 @@ class WindmillWorkerCharm(ops.CharmBase):
 
         framework.observe(self.on.restart_action, self._on_restart_action)
 
-    def _noop_event(self, event: ops.EventBase) -> None:  # pragma: no cover - defensive
-        """No-op handler used when an optional event source is absent."""
-
     def _reconcile(self, event: ops.EventBase) -> None:
         """Reconcile charm state: relations, config, workload, status."""
         if not self.container.can_connect():

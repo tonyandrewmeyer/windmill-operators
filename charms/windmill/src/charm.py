@@ -91,9 +91,6 @@ class WindmillCharm(ops.CharmBase):
 
     # ------------------------------------------------------------------ events
 
-    def _noop_event(self, event: ops.EventBase) -> None:  # pragma: no cover - defensive
-        """No-op handler used when an optional event source is absent."""
-
     def _on_ingress_changed(self, event: ops.EventBase) -> None:
         """Reconcile when the ingress URL appears or changes."""
         self._reconcile(event)
@@ -112,14 +109,7 @@ class WindmillCharm(ops.CharmBase):
             self._stop_workload()
             return
 
-        if not self._is_leader_or_config_settled():
-            # Non-leader units still need to render their own layer; leadership
-            # only matters for publishing relation data, which the libraries
-            # guard internally. Proceed to render the workload.
-            pass
-
         self.unit.status = ops.MaintenanceStatus("configuring windmill")
-        self._ensure_ca_cert(db_info)
         try:
             self._render_layer(db_info)
         except (ops.pebble.Error, ops.pebble.ChangeError) as exc:
@@ -200,9 +190,6 @@ class WindmillCharm(ops.CharmBase):
 
     # -------------------------------------------------------------- CA certificate
 
-    def _ensure_ca_cert(self, db_info: DatabaseInfo) -> None:
-        """No-op placeholder kept for symmetry; CA is pushed in _render_layer."""
-
     def _push_ca_cert(self) -> None:
         ca_cert = str(self.config["ca-cert"] or "").strip()
         if not ca_cert:
@@ -257,9 +244,6 @@ class WindmillCharm(ops.CharmBase):
             return None
 
     # --------------------------------------------------------------- leadership
-
-    def _is_leader_or_config_settled(self) -> bool:
-        return self.unit.is_leader()
 
     # ----------------------------------------------------------------- actions
 
