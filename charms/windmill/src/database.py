@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 from ops import CharmBase, EventBase, EventSource, Object, ObjectEvents, Relation
 
@@ -36,7 +36,7 @@ class DatabaseInfo:
     username: str
     password: str
     database: str
-    tls_ca: Optional[str] = None
+    tls_ca: str | None = None
 
     @property
     def host(self) -> str:
@@ -82,7 +82,7 @@ class Database(Object):
     # ----------------------------------------------------------------- properties
 
     @property
-    def relation(self) -> Optional[Relation]:
+    def relation(self) -> Relation | None:
         """The active database relation, if any."""
         relations = self._charm.model.relations.get(RELATION_NAME, [])
         return relations[0] if relations else None
@@ -125,7 +125,7 @@ class Database(Object):
 
     # ----------------------------------------------------------------- credential fetch
 
-    def get_info(self) -> Optional[DatabaseInfo]:
+    def get_info(self) -> DatabaseInfo | None:
         """Resolve and return the current database credentials, or ``None``."""
         relation = self.relation
         if relation is None or relation.app is None:
@@ -160,7 +160,7 @@ class Database(Object):
 
     def _secret_field(
         self, provider_data: Mapping[str, str], uri_key: str, content_key: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """Resolve a Juju secret referenced in the provider databag."""
         uri = provider_data.get(uri_key)
         if not uri:
@@ -168,7 +168,7 @@ class Database(Object):
         try:
             secret = self._charm.model.get_secret(id=uri)
             content = secret.get_content(refresh=True)
-        except Exception:  # noqa: BLE001 - secret may not be granted/ready yet
+        except Exception:
             logger.debug("could not resolve secret %s", uri_key, exc_info=True)
             return None
         return content.get(content_key)

@@ -47,10 +47,36 @@ show_missing = true
 minversion = "6.0"
 log_cli_level = "INFO"
 
+[tool.codespell]
+skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.coverage,uv.lock"
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["lib", "tests/integration"]
+extraPaths = ["src", "lib"]
+
 [tool.ruff]
 line-length = 99
-lint.select = ["E", "W", "F", "C", "N", "D", "I001"]
-lint.ignore = [
+extend-exclude = [
+    "__pycache__",
+    "*.egg_info",
+    "lib",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "C4",
+    "N",
+    "D",
+    "I",
+    "UP",
+    "B",
+    "RUF",
+]
+ignore = [
     "D105",
     "D107",
     "D203",
@@ -65,16 +91,7 @@ lint.ignore = [
     "D409",
     "D413",
 ]
-lint.per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"]}
-extend-exclude = ["__pycache__", "*.egg_info", "lib"]
 
-[tool.ruff.lint.mccabe]
-max-complexity = 12
-
-[tool.codespell]
-skip = "build,lib,venv,icon.svg,.tox,.git,.mypy_cache,.ruff_cache,.coverage,uv.lock"
-
-[tool.pyright]
-include = ["src", "tests"]
-exclude = ["lib", "tests/integration"]
-extraPaths = ["src", "lib"]
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D", "S101", "S105", "S106", "S108", "PLR2004", "ARG", "SLF001", "N802", "N803", "N806"]
+"tests/*" = ["D100", "D101", "D102", "D103", "D104"]

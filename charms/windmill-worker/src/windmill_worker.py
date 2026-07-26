@@ -9,7 +9,6 @@ Pure functions with no charming concerns.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from ops import pebble
 
@@ -44,7 +43,7 @@ def build_layer(
     py_concurrent_downloads: int = 20,
     pip_local_dependencies: str = "",
     whitelist_envs: str = "",
-    extra_env: Optional[dict[str, str]] = None,
+    extra_env: dict[str, str] | None = None,
 ) -> pebble.LayerDict:
     """Build the Pebble layer for a Windmill worker."""
     if not worker_tags:

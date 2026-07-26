@@ -56,7 +56,7 @@ def init_database(*, superuser_url: str, app_username: str) -> dict[str, str]:
 
     try:
         conn = pg8000.connect(**_parse_dsn(superuser_url), timeout=15)  # type: ignore[call-overload]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise InitDbError(f"could not connect as superuser: {exc}") from exc
 
     try:
@@ -65,12 +65,12 @@ def init_database(*, superuser_url: str, app_username: str) -> dict[str, str]:
         for stmt in statements:
             cur.execute(stmt)
         cur.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise InitDbError(f"failed to initialise database: {exc}") from exc
     finally:
         try:
             conn.close()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("error closing superuser connection", exc_info=True)
 
     return {
