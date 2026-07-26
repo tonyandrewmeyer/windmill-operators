@@ -12,7 +12,6 @@ They do not talk to the server; only to PostgreSQL. Scale horizontally with
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import ops
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
@@ -133,7 +132,7 @@ class WindmillWorkerCharm(ops.CharmBase):
                         f"service.namespace={self.model.name},"
                         f"service.instance.id={self.unit.name}"
                     )
-        except Exception:  # noqa: BLE001 - tracing is best-effort
+        except Exception:
             logger.debug("tracing endpoint not available", exc_info=True)
         return env
 
@@ -150,7 +149,7 @@ class WindmillWorkerCharm(ops.CharmBase):
         group = str(self.config["worker-group"])
         self.unit.status = ops.ActiveStatus(f"ready (group={group})")
 
-    def _workload_version(self) -> Optional[str]:
+    def _workload_version(self) -> str | None:
         if not self.container.can_connect():
             return None
         try:
@@ -159,7 +158,7 @@ class WindmillWorkerCharm(ops.CharmBase):
             ).wait_output()
             out = stdout.strip()
             return out or None
-        except Exception:  # noqa: BLE001 - best-effort version detection
+        except Exception:
             return None
 
     def _on_restart_action(self, event: ops.ActionEvent) -> None:

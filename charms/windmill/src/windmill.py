@@ -16,7 +16,7 @@ import string
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Optional
+from typing import Any
 
 from ops import pebble
 
@@ -47,7 +47,7 @@ def build_layer(
     enable_smtp: bool = False,
     superadmin_secret: str = "",
     ca_cert: str = "",
-    extra_env: Optional[dict[str, str]] = None,
+    extra_env: dict[str, str] | None = None,
 ) -> pebble.LayerDict:
     """Build the Pebble layer for the Windmill server/worker workload.
 
@@ -138,7 +138,7 @@ class WindmillAdminClient:
         self._timeout = timeout
 
     def _request(
-        self, method: str, path: str, body: Optional[dict[str, Any]] = None
+        self, method: str, path: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = urllib.parse.urljoin(self._base_url + "/", path.lstrip("/"))
         data = json.dumps(body).encode() if body is not None else None
@@ -146,7 +146,7 @@ class WindmillAdminClient:
         req.add_header("Authorization", f"Bearer {self._token}")
         req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
                 payload = resp.read().decode()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")

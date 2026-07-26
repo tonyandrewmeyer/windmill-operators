@@ -13,7 +13,6 @@ database and pull jobs from its queue.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from urllib.parse import urlparse
 
 import ops
@@ -174,7 +173,7 @@ class WindmillCharm(ops.CharmBase):
                         f"service.namespace={self.model.name},"
                         f"service.instance.id={self.unit.name}"
                     )
-        except Exception:  # noqa: BLE001 - tracing is best-effort
+        except Exception:
             logger.debug("tracing endpoint not available", exc_info=True)
         return env
 
@@ -231,7 +230,7 @@ class WindmillCharm(ops.CharmBase):
         msg = f"ready at {urlparse(base).netloc}" if base else "ready"
         self.unit.status = ops.ActiveStatus(msg)
 
-    def _workload_version(self) -> Optional[str]:
+    def _workload_version(self) -> str | None:
         if not self.container.can_connect():
             return None
         try:
@@ -240,7 +239,7 @@ class WindmillCharm(ops.CharmBase):
             ).wait_output()
             out = stdout.strip()
             return out or None
-        except Exception:  # noqa: BLE001 - best-effort version detection
+        except Exception:
             return None
 
     # --------------------------------------------------------------- leadership
@@ -306,7 +305,7 @@ class WindmillCharm(ops.CharmBase):
                 label="admin-password",
             )
             _ = secret  # app-owned secret is auto-accessible to all units
-        except Exception:  # noqa: BLE001 - secret is best-effort convenience
+        except Exception:
             logger.debug("could not persist admin password as a secret", exc_info=True)
         event.set_results({"password": password, "username": windmill.DEFAULT_ADMIN_EMAIL})
 
